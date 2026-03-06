@@ -8,7 +8,7 @@ import requests
 from PIL import Image, ImageTk
 
 ESP_IP = "" #need esp first
-stream_url = f"http://{ESP_IP}:81/stream"
+#stream_url = f"http://{ESP_IP}:81/stream"
 classes = ["thumbs up","thumbs down"] #just the list of possible colors. must tell the students the order as well.
 show_feed=False
 frame_height=244
