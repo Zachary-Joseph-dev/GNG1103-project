@@ -1,4 +1,2 @@
-/run_on_PC_method/build
-/run_on_PC_method/webcam_test
-/run_on_PC_method/webcam_test.spec
-/run_on_PC_method/dist
+data.csv
+run_local_method/

@@ -7,80 +7,132 @@ import cv2
 import requests
 from PIL import Image, ImageTk
 
-ESP_IP = "" #need esp first
+ESP_IP = '' #need esp first
 stream_url = f"http://{ESP_IP}:81/stream"
 classes = [] #just the list of possible colors. must tell the students the order as well.
 show_feed=False
 frame_height=244
 frame_width=244
 
-def run_model(model,cap):
+
+bars = []
+bar_width = 40
+spacing = 30
+chart_height = 250
+baseline = 270
+max_height = 200
+
+def setClasses(filepath):
+    with open(filepath,"r") as f:
+        lines = f.readlines()
+        for line in lines:
+            classes.append(line[2:])
+
+
+def createNewUI():
+    select_button.grid_forget()
+    label.grid_forget()
+    prediction_label.grid(row=1, column=0, padx=10, pady=10, sticky="ew")
+    display_image.grid(row=0,column=0, padx=10, pady=10,sticky="ne")
+    chart_canvas.grid(row=0, column=1, rowspan=2, padx=10, pady=10, sticky="sw")
+
+    i=0
+    for class_text in classes:
+        x0 = spacing + i*(bar_width + spacing)
+        x1 = x0 + bar_width
+
+        bar = chart_canvas.create_rectangle(x0, baseline, x1, baseline,fill="skyblue")
+
+        chart_canvas.create_text((x0+x1)/2,baseline + 15,text=class_text)
+
+        bars.append(bar)
+        i+=1
+
+def updateChart(preds):
+    i=0
+    for pred in preds:
+        height = pred * max_height
+
+        x0, _, x1, _ = chart_canvas.coords(bars[i])
+
+        chart_canvas.coords(bars[i], x0, baseline - height, x1, baseline)
+        i+=1
+
+
+def runModel(model,cap):
 
     ret, frame = cap.read()
     if not ret:
         messagebox.showwarning("cannot connect to sorting machine!")
 
 
-    # cv2 stores images in BGR so must convert BGR -> RGB
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    # Resize to model input size
-    resized = cv2.resize(frame_rgb, (frame_height, frame_width))  # CHANGE to our model input size
+
+    resized = cv2.resize(frame_rgb, (frame_height, frame_width))  
     normalized = resized / 255.0
     input_data = np.expand_dims(normalized, axis=0)
-
-    #prediction is a dict need to convert dict -> numpy array
+    
     prediction = model(input_data)
+
     for x in prediction:
         prediction = prediction[x].numpy()
-    #returns the index with the largest probability
+   
     class_index = np.argmax(prediction)
-    #returns the highest probability
+
     confidence = float(np.max(prediction))
 
-    #via wifi tells the esp what the prediction was
-    requests.get(f"http://{ESP_IP}/cmd?prediction={class_index}")
+    requests.get(f"http://{ESP_IP}/cmd?prediction={classes[class_index]}")
 
-    text = f"{classes[class_index]} confidence:({confidence:.2f})"
-    #creates a rectangle with th image in it
-    # paramaters: image, top left, bottom right, Rectangle color,thichness( negative means filled rect)
-    cv2.rectangle(frame, (10, 10), (350, 60), (0, 0, 0), -1)
-    #puts text with image
-    # parameters: image,text, bottom left,font,font size mulitipier (each font has a font size so must apply multiplier to change size),color,thickness of lines to draw text 
-    cv2.putText(frame, text,(20, 45),cv2.FONT_HERSHEY_SIMPLEX,0.5,(255,255,255),2)
 
-    # cv2 stores images in BGR so must convert BGR -> RGB
+    prediction_label.config(text=f"Prediction: {classes[class_index]}:({confidence:.2f}%)")
+    updateChart(prediction[0])
+    
+    
+ 
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-    # Convert to Tkinter image
     img = Image.fromarray(frame_rgb)
     imgtk = ImageTk.PhotoImage(image=img)
 
-    label.imgtk = imgtk
-    label.configure(image=imgtk)
+    display_image.imgtk = imgtk
+    display_image.configure(image=imgtk)
 
-    root.after(30, lambda: run_model(model, cap))
+    root.after(30, lambda: runModel(model, cap))
 
 
-def select_file(button):
-    #simple file selection
+def selectFile():
+   
     folder_path = filedialog.askdirectory(title="Select Folder")
+    setClasses(f"{folder_path}/labels.txt")
+    folder_path+="/model.savedmodel"
+
+
     if folder_path: 
-        button.pack_forget()
+        createNewUI()
         model = TFSMLayer(folder_path, call_endpoint="serving_default")
         cap = cv2.VideoCapture(stream_url)
-        run_model(model,cap)
+        runModel(model,cap)
     else:
         messagebox.showwarning("No Selection", "No folder selected!")
 
-#simple UI
+
 root = tk.Tk()
 root.title("AI hopper sorter")
-root.geometry("700x550")
+root.grid_columnconfigure(0, weight=1)
+root.grid_columnconfigure(1, weight=1)
+root.grid_rowconfigure(0, weight=1)
+
 
 label = tk.Label(root, text="Select a Teachable Machine saved model", pady=20)
-label.pack()
+label.grid(row=0,column=0,columnspan=2)
 
-select_button = tk.Button(root, text="Select Model", width=20, height=2, command=lambda: select_file(select_button))
-select_button.pack()
+display_image=tk.Label(root,bg="blue")
+
+prediction_label = tk.Label(root,text="",font=("Arial", 16),bg="skyblue",fg="blue")
+
+chart_canvas = tk.Canvas(root, width=300, height=300, bg="white")
+
+select_button = tk.Button(root, text="Select Model", width=20, height=2, command=selectFile)
+select_button.grid(row=1,column=0,columnspan=2)
 
 root.mainloop()
