@@ -1,5 +1,7 @@
 #include "esp_camera.h"
 #include <WiFi.h>
+#include <map>
+#include <string>
 
 // ===========================
 // Select camera model in board_config.h
@@ -10,6 +12,83 @@
 // Enter your WiFi credentials
 // ===========================
 const char *ssid = "AI Sorter";
+
+struct Color {
+    const char* name;
+    int value;
+};
+
+Color colors[] = {
+    {"no ball", 0},
+    {"yellow", 1},
+    {"green", 2},
+    {"blue", 3},
+    {"red", 4},
+    {"black", 5},
+    {"white", 6}
+};
+
+int classes[5];
+int current_prediction;
+
+int getColorValue(const char* name) {
+    for (int i = 0; i < sizeof(colors)/sizeof(colors[0]); i++) {
+        if (strcmp(name, colors[i].name) == 0) {
+            return colors[i].value;
+        }
+    }
+    return -1;
+}
+
+esp_err_t set_handler(httpd_req_t *req) {
+    char* buf;
+    size_t buf_len = httpd_req_get_url_query_len(req) + 1;
+
+    if (buf_len > 1) {
+        buf = (char*)malloc(buf_len);
+        if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK) {
+            char param[32];
+            if (httpd_query_key_value(buf, "size", param, sizeof(param)) == ESP_OK) {
+                int size = atoi(param);
+                char key[16];
+                sprintf(key, "class%d", i);
+                for(int i=0;i<size;i++){
+                  if (httpd_query_key_value(buf, key, param, sizeof(param)) == ESP_OK){
+                    classes[i]=getColorValue(param);
+                  }
+                }
+            }
+        }
+        free(buf);
+    }
+
+    const char* resp = "OK";
+    httpd_resp_send(req, resp, strlen(resp));
+    return ESP_OK;
+}
+
+esp_err_t push_handler(httpd_req_t *req) {
+    char* buf;
+    size_t buf_len = httpd_req_get_url_query_len(req) + 1;
+
+    if (buf_len > 1) {
+        buf = (char*)malloc(buf_len);
+        if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK) {
+            char param[32];
+            if (httpd_query_key_value(buf, "prediction", param, sizeof(param)) == ESP_OK) {
+                current_prediction=getColorValue(param);
+            }
+        }
+        free(buf);
+    }
+
+    const char* resp = "OK";
+    httpd_resp_send(req, resp, strlen(resp));
+    return ESP_OK;
+}
+
+
+
 
 void startCameraServer();
 void setupLedFlash();
@@ -112,6 +191,24 @@ void setup() {
   Serial.println(WiFi.softAPIP());
 
   startCameraServer();
+
+  httpd_uri_t set_uri = {
+    .uri       = "/set",
+    .method    = HTTP_GET,
+    .handler   = set_handler,
+    .user_ctx  = NULL
+};
+
+  httpd_register_uri_handler(camera_httpd, &set_uri);
+
+  httpd_uri_t push_uri = {
+    .uri       = "/push",
+    .method    = HTTP_GET,
+    .handler   = push_handler,
+    .user_ctx  = NULL
+};
+
+  httpd_register_uri_handler(camera_httpd, &push_uri);
 
   Serial.print("Camera Ready! Use 'http://");
   Serial.print(WiFi.localIP());

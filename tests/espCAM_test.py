@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import filedialog,messagebox
+from tkinter import ttk
 import tensorflow as tf
 from keras.layers import TFSMLayer
 import numpy as np
@@ -7,9 +8,10 @@ import cv2
 import requests
 from PIL import Image, ImageTk
 
-ESP_IP = "192.168.4.1"
+ESP_IP = "192.168.4.1" #need esp first
 stream_url = f"http://{ESP_IP}/stream"
-classes = [] 
+
+classes = []
 show_feed=False
 frame_height=244
 frame_width=244
@@ -17,14 +19,6 @@ frame_width=244
 
 progress_bars = {}
 confidence_labels = {}
-
-
-def giveESPClassNames():
-    request_string=f"http://{ESP_IP}/set?size={len(classes)}"
-    for i,class_name in enumerate(classes):
-        request_string+=f"&class{i}={class_name}"
-    requests.get(request_string)
-
 
 def setClasses(filepath):
     with open(filepath,"r") as f:

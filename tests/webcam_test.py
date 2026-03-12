@@ -6,7 +6,6 @@ from keras.layers import TFSMLayer
 import numpy as np
 import cv2
 import requests
-import time
 from PIL import Image, ImageTk
 
 
@@ -74,17 +73,11 @@ def updateChart(preds,class_index):
             confidence_labels[class_string].config(font=("Segoe UI", 10))
 
 
-def runModel(model,cap,previous_time):
+def runModel(model,cap):
 
     ret, frame = cap.read()
     if not ret:
         messagebox.showwarning("cannot connect to sorting machine!")
-
-    """current_time=time.time()
-    delta_time=current_time-previous_time
-    previous_time=time.time()
-    with open("data.csv", "a") as f:
-        f.write(f"{delta_time},{1/delta_time}\n")"""
 
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
@@ -111,7 +104,7 @@ def runModel(model,cap,previous_time):
     display_image.imgtk = imgtk
     display_image.configure(image=imgtk)
 
-    root.after(30, lambda: runModel(model, cap,previous_time))
+    root.after(30, lambda: runModel(model, cap))
 
 
 def selectFile():
@@ -125,8 +118,7 @@ def selectFile():
         createNewUI()
         model = TFSMLayer(folder_path, call_endpoint="serving_default")
         cap = cv2.VideoCapture(0)
-        #previous_time=time.time()
-        runModel(model,cap,0)
+        runModel(model,cap)
     else:
         messagebox.showwarning("No Selection", "No folder selected!")
 
