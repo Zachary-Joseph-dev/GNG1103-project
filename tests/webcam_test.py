@@ -17,7 +17,6 @@ show_feed=False
 frame_height=244
 frame_width=244
 
-name_labels = {}
 progress_bars = {}
 confidence_labels = {}
 
@@ -33,12 +32,14 @@ def createNewUI():
     for widget in confidence_frame.winfo_children():
         widget.destroy()
 
-    name_labels.clear()
     progress_bars.clear()
     confidence_labels.clear()
 
     select_button.destroy()
     label.destroy()
+
+    root.config(bg="#dee2e3")
+    root.geometry("1054x629")
 
     left_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
     right_frame.grid(row=1, column=1, sticky="nsew", padx=10, pady=10)
@@ -65,12 +66,11 @@ def createNewUI():
         conf_label = tk.Label(row, text="0.00")
         conf_label.pack(side="left")
 
-        name_labels[class_string] = name_label
         progress_bars[class_string] = bar
         confidence_labels[class_string] = conf_label
 
 def updateChart(preds,class_index):
-    prediction_label.config(text=f"Prediction: {classes[class_index]}:({preds[class_index]*100:.2f}%)")
+    prediction_label.config(text=f"Prediction: {classes[class_index]} ({preds[class_index]*100:.2f}%)")
     for i, class_string in enumerate(classes):
 
         pred = preds[i]
@@ -85,7 +85,7 @@ def updateChart(preds,class_index):
 
 
 def runModel():
-    global model, cap, after_id
+    global model, cap, after_id, i
 
     ret, frame = cap.read()
     if not ret:
@@ -99,11 +99,9 @@ def runModel():
     
     prediction = model(input_data)
 
-    for x in prediction:
-        prediction = prediction[x].numpy()
+    prediction = list(prediction.values())[0].numpy()
    
     class_index = np.argmax(prediction)
-
     confidence = float(np.max(prediction))
 
     updateChart(prediction[0],class_index)
@@ -141,7 +139,7 @@ def selectFile():
 
 root = tk.Tk()
 root.title("AI hopper sorter")
-root.geometry("800x600")  # Adjust size as needed
+root.geometry("450x300")
 root.configure(bg="#2c3e50")
 root.rowconfigure(1, weight=1)
 root.columnconfigure(0, weight=3)
