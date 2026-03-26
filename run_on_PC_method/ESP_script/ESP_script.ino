@@ -18,6 +18,7 @@ Color colors[] = {
     {"orange", 3},
     {"beige", 4}
 };
+unsigned long sendTime = 0;
 
 int current_prediction;
 
@@ -32,25 +33,7 @@ int getColorValue(const char* name) {
 
 
 
-esp_err_t push_handler(httpd_req_t *req) {
-    char* buf;
-    size_t buf_len = httpd_req_get_url_query_len(req) + 1;
 
-    if (buf_len > 1) {
-        buf = (char*)malloc(buf_len);
-        if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK) {
-            char param[32];
-            if (httpd_query_key_value(buf, "prediction", param, sizeof(param)) == ESP_OK) {
-                current_prediction=getColorValue(param);
-            }
-        }
-        free(buf);
-    }
-
-    const char* resp = "OK";
-    httpd_resp_send(req, resp, strlen(resp));
-    return ESP_OK;
-}
 
 // AI Thinker ESP32-CAM pin config
 #define PWDN_GPIO_NUM     32
@@ -74,11 +57,13 @@ esp_err_t push_handler(httpd_req_t *req) {
 httpd_handle_t stream_httpd = NULL;
 
 static esp_err_t stream_handler(httpd_req_t *req) {
-    camera_fb_t * fb = NULL;
+    camera_fb_t* fb = NULL;
     esp_err_t res = ESP_OK;
 
     res = httpd_resp_set_type(req, "multipart/x-mixed-replace; boundary=frame");
     if (res != ESP_OK) return res;
+
+    httpd_resp_send_chunk(req, "\r\n", 2);
 
     while (true) {
         fb = esp_camera_fb_get();
@@ -106,6 +91,7 @@ static esp_err_t stream_handler(httpd_req_t *req) {
 
         esp_camera_fb_return(fb);
     }
+    httpd_resp_send_chunk(req, NULL, 0);
 
     return res;
 }
@@ -119,16 +105,10 @@ void startCameraServer() {
         .handler   = stream_handler,
         .user_ctx  = NULL
     };
-    httpd_uri_t push_uri = {
-    .uri       = "/push",
-    .method    = HTTP_GET,
-    .handler   = push_handler,
-    .user_ctx  = NULL  
-    };
+    
 
     if (httpd_start(&stream_httpd, &config) == ESP_OK) {
         httpd_register_uri_handler(stream_httpd, &stream_uri);
-         httpd_register_uri_handler(stream_httpd, &push_uri);
     }
 }
 
@@ -175,8 +155,9 @@ void setup() {
   Serial.println(WiFi.softAPIP());
 
     startCameraServer();
+    
 }
 
 void loop() {
-    
+   
 }

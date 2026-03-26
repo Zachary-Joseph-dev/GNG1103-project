@@ -7,18 +7,20 @@ import numpy as np
 import cv2
 import requests
 import threading
+import socket
 from PIL import Image, ImageTk
 
 ESP_IP = "192.168.4.1"
 stream_url = "http://192.168.4.1/stream"
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 cap = None
 after_id = None
 latest_frame = None
 
 classes = []
-
-show_feed = False
+stream_started=False
+Loading=False
 frame_height=244
 frame_width=244
 display_width=0
@@ -27,12 +29,10 @@ display_height=0
 progress_bars = {}
 confidence_labels = {}
 
-def waitForFirstFrame():
-    if latest_frame is None:
-        root.after(100, waitForFirstFrame)
-    else:
-        createNewUI()
-        runModel()
+def sendPrediction(prediction):
+    prediction=classes[prediction].lower()
+    msg=prediction.encode()
+    sock.sendto(msg, (ESP_IP, 5000))
 
 def readStream():
     global latest_frame
@@ -72,9 +72,14 @@ def resizeWithAspectRatio(image, max_width, max_height):
     new_w = int(w * scale)
     new_h = int(h * scale)
     return cv2.resize(image, (new_w, new_h))
-
+def createLoadingScreen():
+    global Loading
+    select_button.destroy()
+    label.config(text = "Loading...",font=("Segoe UI", 20, "bold"))
+    root.update()
+    Loading=True
 def createNewUI():
-    global display_height,display_width
+    global display_height,display_width,Loading
     for widget in confidence_frame.winfo_children():
         widget.destroy()
 
@@ -135,7 +140,7 @@ def updateChart(preds,class_index):
 
 
 def runModel():
-    global latest_frame,after_id
+    global latest_frame,after_id,Loading
 
     if latest_frame is None:
         root.after(50, runModel)
@@ -150,11 +155,12 @@ def runModel():
     input_data = np.expand_dims(normalized, axis=0) 
     # Run model 
     prediction = model(input_data) 
+
     prediction = list(prediction.values())[0].numpy()
    
     class_index = np.argmax(prediction)  
     # Send prediction to ESP32 
-    #requests.get(f"http://{ESP_IP}/push?prediction={classes[class_index].lower()}") 
+    #requests.get(f"http://{ESP_IP}/push?prediction=blue") 
     #Update GUI 
     frame_rgb = resizeWithAspectRatio(frame_rgb,display_width,display_height)
     updateChart(prediction[0], class_index) 
@@ -175,12 +181,15 @@ def selectFile():
         root.after_cancel(after_id)
 
     if folder_path:
+        if stream_started==False: 
+            threading.Thread(target=readStream, daemon=True).start()
+            stream_started=True
+        createNewUI()
         model = TFSMLayer(folder_path, call_endpoint="serving_default")
-        waitForFirstFrame()
+        runModel()
     else:
         messagebox.showwarning("No Selection", "No folder selected!")
 
-threading.Thread(target=readStream, daemon=True).start()
 root = tk.Tk()
 root.title("AI hopper sorter")
 root.geometry("450x300")
