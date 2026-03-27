@@ -1,10 +1,14 @@
 #include "esp_camera.h"
 #include <WiFi.h>
 #include "esp_http_server.h"
+#include <sys/socket.h>
 #include <map>
 #include <string>
 
 const char *ssid = "AI Sorter";
+
+WiFiUDP udp;
+const int udpPort = 4210;
 
 struct Color {
     const char* name;
@@ -30,9 +34,6 @@ int getColorValue(const char* name) {
     }
     return -1;
 }
-
-
-
 
 
 // AI Thinker ESP32-CAM pin config
@@ -65,35 +66,48 @@ static esp_err_t stream_handler(httpd_req_t *req) {
 
     httpd_resp_send_chunk(req, "\r\n", 2);
 
+    int client_sock = httpd_req_to_sockfd(req);
+
     while (true) {
+        // Check if client disconnected
+        char buf;
+        int ret = recv(client_sock, &buf, 1, MSG_PEEK | MSG_DONTWAIT);
+        if (ret == 0) { // client disconnected
+            Serial.println("Client disconnected");
+            break;
+        } else if (ret < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+            Serial.printf("Socket error: %d\n", errno);
+            break;
+        }
+
         fb = esp_camera_fb_get();
         if (!fb) {
             Serial.println("Camera capture failed");
-            return ESP_FAIL;
+            break;
         }
 
         char header[128];
-        sprintf(header,
-                "--frame\r\n"
-                "Content-Type: image/jpeg\r\n"
-                "Content-Length: %u\r\n\r\n",
-                fb->len);
+        int len = snprintf(header, sizeof(header),
+                           "--frame\r\n"
+                           "Content-Type: image/jpeg\r\n"
+                           "Content-Length: %u\r\n\r\n",
+                           fb->len);
 
-        res = httpd_resp_send_chunk(req, header, strlen(header));
+        res = httpd_resp_send_chunk(req, header, len);
         if (res == ESP_OK) {
             res = httpd_resp_send_chunk(req, (const char *)fb->buf, fb->len);
         }
 
+        esp_camera_fb_return(fb);
+
         if (res != ESP_OK) {
-            esp_camera_fb_return(fb);
+            Serial.println("Client disconnected during send");
             break;
         }
-
-        esp_camera_fb_return(fb);
     }
-    httpd_resp_send_chunk(req, NULL, 0);
 
-    return res;
+    httpd_resp_send_chunk(req, NULL, 0);
+    return ESP_OK;
 }
 
 void startCameraServer() {
@@ -148,16 +162,29 @@ void setup() {
     }
 
     // Connect WiFi
-   WiFi.softAP(ssid);
+    WiFi.softAP(ssid);
 
-  Serial.println("SoftAP started");
-  Serial.print("IP address: ");
-  Serial.println(WiFi.softAPIP());
+    Serial.println("SoftAP started");
+    Serial.print("IP address: ");
+    Serial.println(WiFi.softAPIP());
+
+    udp.begin(udpPort);
+    Serial.printf("UDP server started on port %d\n", udpPort);
 
     startCameraServer();
     
 }
 
 void loop() {
-   
+   int packetSize = udp.parsePacket();
+    if (packetSize) {
+        char packet[128];
+        int len = udp.read(packet, sizeof(packet) - 1);
+        if (len > 0){
+        packet[len] = 0;
+        }
+        Serial.printf("Received: %s\n", packet);
+
+        //current_prediction = getColorValue(packet)
+    }
 }

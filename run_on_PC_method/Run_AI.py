@@ -13,6 +13,7 @@ from PIL import Image, ImageTk
 ESP_IP = "192.168.4.1"
 stream_url = "http://192.168.4.1/stream"
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+UDP_PORT = 4210
 
 cap = None
 after_id = None
@@ -20,7 +21,7 @@ latest_frame = None
 
 classes = []
 stream_started=False
-Loading=False
+loading=False
 frame_height=244
 frame_width=244
 display_width=0
@@ -31,32 +32,24 @@ confidence_labels = {}
 
 def sendPrediction(prediction):
     prediction=classes[prediction].lower()
-    msg=prediction.encode()
-    sock.sendto(msg, (ESP_IP, 5000))
+    msg=prediction.encode('utf-8')
+    sock.sendto(msg, (ESP_IP, 4210))
 
 def readStream():
     global latest_frame
 
+    cap = cv2.VideoCapture(stream_url)
+
     while True:
-        try:
-            bytes_data = b''
-            stream = requests.get(stream_url, stream=True)
+        ret, frame = cap.read()
 
-            for chunk in stream.iter_content(chunk_size=4096):
-                bytes_data += chunk
+        if not ret:
+            print("Reconnect...")
+            cap.release()
+            cap = cv2.VideoCapture(stream_url)
+            continue
 
-                start = bytes_data.find(b'\xff\xd8')
-                end = bytes_data.find(b'\xff\xd9')
-
-                if start != -1 and end != -1 and end > start:
-                    jpg = bytes_data[start:end+2]
-                    bytes_data = bytes_data[end+2:]
-
-                    frame = cv2.imdecode(np.frombuffer(jpg, dtype=np.uint8), cv2.IMREAD_COLOR)
-                    if frame is not None:
-                        latest_frame = frame
-        except Exception as e:
-            print("Stream error, reconnecting...", e)
+        latest_frame = frame
 
 
 def setClasses(filepath):
@@ -73,20 +66,19 @@ def resizeWithAspectRatio(image, max_width, max_height):
     new_h = int(h * scale)
     return cv2.resize(image, (new_w, new_h))
 def createLoadingScreen():
-    global Loading
+    global loading
     select_button.destroy()
     label.config(text = "Loading...",font=("Segoe UI", 20, "bold"))
     root.update()
-    Loading=True
+    loading=True
 def createNewUI():
-    global display_height,display_width,Loading
+    global display_height,display_width,loading
     for widget in confidence_frame.winfo_children():
         widget.destroy()
 
     progress_bars.clear()
     confidence_labels.clear()
 
-    select_button.destroy()
     label.destroy()
 
     root.config(bg="#dee2e3")
@@ -123,6 +115,8 @@ def createNewUI():
 
         progress_bars[class_string] = bar
         confidence_labels[class_string] = conf_label
+    
+    root.update()
 
 def updateChart(preds,class_index):
     prediction_label.config(text=f"Prediction: {classes[class_index]} ({preds[class_index]*100:.2f}%)")
@@ -140,11 +134,14 @@ def updateChart(preds,class_index):
 
 
 def runModel():
-    global latest_frame,after_id,Loading
+    global latest_frame,after_id,loading
 
     if latest_frame is None:
         root.after(50, runModel)
         return
+    if loading:
+        createNewUI()
+        loading=False
 
     frame = latest_frame.copy()
     # Convert BGR -> RGB for Tkinter & model 
@@ -160,7 +157,7 @@ def runModel():
    
     class_index = np.argmax(prediction)  
     # Send prediction to ESP32 
-    #requests.get(f"http://{ESP_IP}/push?prediction=blue") 
+    sendPrediction(class_index)
     #Update GUI 
     frame_rgb = resizeWithAspectRatio(frame_rgb,display_width,display_height)
     updateChart(prediction[0], class_index) 
@@ -184,7 +181,7 @@ def selectFile():
         if stream_started==False: 
             threading.Thread(target=readStream, daemon=True).start()
             stream_started=True
-        createNewUI()
+        createLoadingScreen()
         model = TFSMLayer(folder_path, call_endpoint="serving_default")
         runModel()
     else:
