@@ -1,3 +1,5 @@
+#include <dummy.h>
+
 #include "esp_camera.h"
 #include <WiFi.h>
 #include "esp_http_server.h"
@@ -13,6 +15,8 @@ struct Color {
     const char* name;
     int value;
 };
+enum State {WAITING,MOVING_DIVERTER,DROPPING_BALL};
+State currentState = WAITING;
  
 Servo Servo1;
 Servo Servo2;
@@ -25,23 +29,19 @@ Color colors[] = {
     {"beige", 4}
 };
  
-static bool actionInProgress = false;
-unsigned long actionStarted = 0;
-unsigned long released = 0;
-unsigned long reseted = 0;
-bool move=false;
+
  
 int diverterServoAngle;
-int dispenseServoAngle;
+bool move = false;
 int pinkAngle=45;
 int blueAngle=80;
 int orangeAngle=115;
 int beigeAngle=150;
-unsigned long sendTime = 0;
  
 int currentPrediction;
 int previousPrediction=0;
- 
+
+unsigned long stateStartTime = 0;
  
 //motor pin config
 int dispenseServoPin = 12;
@@ -150,69 +150,95 @@ void setup() {
 void loop(){
  
 }
-   
-void controlTask(void *pvParameters){
-while (true) {
-   int packetSize = udp.parsePacket();
-   unsigned long now = millis();
-    if (packetSize) {
-        char packet[128];
-        int len = udp.read(packet, sizeof(packet) - 1);
-        if (len > 0){
-        packet[len] = 0;
+   void controlTask(void *pvParameters){
+    while (true) {
+
+        int packetSize = udp.parsePacket();
+        unsigned long now = millis();
+
+        if (packetSize) {
+            char packet[128];
+            int len = udp.read(packet, sizeof(packet) - 1);
+            if (len > 0){
+                packet[len] = 0;
+            }
+            //Serial.printf("Received: %s\n", packet);
+
+            currentPrediction = getColorValue(packet);
         }
-        Serial.printf("Received: %s\n", packet);
- 
-        currentPrediction = getColorValue(packet);
+
+        
+        switch (currentPrediction){
+            case 1:
+                diverterServoAngle = pinkAngle;
+                move = true;
+                break;
+            case 2:
+                diverterServoAngle = blueAngle;
+                move = true;
+                break;
+            case 3:
+                diverterServoAngle = orangeAngle;
+                move = true;
+                break;
+            case 4:
+                diverterServoAngle = beigeAngle;
+                move = true;
+                break;
+            default:
+                move = false;
+                break;
+        }
+
+        
+        switch (currentState) {
+
+            case WAITING:
+                if (currentPrediction != 0 && move && currentPrediction == previousPrediction) {
+                    Serial.println("State: MOVING_DIVERTER");
+
+                    Servo2.write(diverterServoAngle);  // move diverter
+                    stateStartTime = now;
+                    currentState = MOVING_DIVERTER;
+                }
+                break;
+
+            case MOVING_DIVERTER:
+                // wait for diverter to reach position
+                if (now - stateStartTime > 500) {  // adjust if needed
+                    Serial.println("State: DROPPING_BALL");
+
+                    stateStartTime = now;
+                    currentState = DROPPING_BALL;
+                }
+                break;
+
+            case DROPPING_BALL:
+                if (now - stateStartTime < 1000) {
+                    Servo1.write(180);  // open gate
+                }
+                else if (now - stateStartTime < 2500) {
+                    Servo1.write(0);    // close
+                }
+                else if (now - stateStartTime < 4500) {
+                    Servo1.write(90);   // neutral
+                }
+                else {
+                    Serial.println("State: WAITING");
+
+                    currentState = WAITING;
+                    currentPrediction = 0;  // reset input
+                }
+                break;
+        }
+
+        previousPrediction = currentPrediction;
+
+        vTaskDelay(10 / portTICK_PERIOD_MS);
     }
-/*****************************************/
-//edit until the end of the function
-//Servo1 is the servo controlling the gate
-// use vTaskDelay( *time in ms* / portTICK_PERIOD_MS); instead of delay
-/******************************************/
-    switch (currentPrediction){
-        case 1:
-            diverterServoAngle=pinkAngle;
-            move=true;
-            break;
-        case 2:
-            diverterServoAngle=blueAngle;
-            move=true;
-            break;
-        case 3:
-            diverterServoAngle=orangeAngle;
-            move=true;
-            break;
-        case 4:
-            diverterServoAngle=beigeAngle;
-            move=true;
-            break;
-        default:
-            move=false;
-            break;
-    }
-   if(currentPrediction == previousPrediction && currentPrediction != 0 && !actionInProgress && move){
-        Serial.println("moving!");
-        Servo2.write(diverterServoAngle);
-        actionStarted = millis();
-        actionInProgress = true;
-    }
-    if((now-actionStarted>1000) && (actionStarted!=0) && move){
-        Servo1.write(180);
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-        Servo1.write(0);
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-        Servo1.write(90);
-    }
- 
-       
-    previousPrediction=currentPrediction;
- 
-    vTaskDelay(10 / portTICK_PERIOD_MS);
 }
-}
  
-//DO NOT TOUCH
+
 int getColorValue(const char* name) {
     for (int i = 0; i < sizeof(colors)/sizeof(colors[0]); i++) {
         if (strcmp(name, colors[i].name) == 0) {
@@ -222,7 +248,7 @@ int getColorValue(const char* name) {
     return -1;
 }
  
-//DO NOT TOUCH
+
 static esp_err_t stream_handler(httpd_req_t *req) {
     camera_fb_t* fb = NULL;
     esp_err_t res = ESP_OK;
@@ -276,7 +302,7 @@ static esp_err_t stream_handler(httpd_req_t *req) {
     return ESP_OK;
 }
  
-//DO NOT TOUCH
+
 void startCameraServer() {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
  
